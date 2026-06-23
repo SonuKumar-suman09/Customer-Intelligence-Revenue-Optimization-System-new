@@ -11,71 +11,56 @@ def ingest():
     
     print("Loading data from CSVs...")
     try:
-        customers_df = pd.read_csv('../data/customers.csv')
-        transactions_df = pd.read_csv('../data/transactions.csv')
+        customers_df = pd.read_csv('../data/Mall_Customers.csv')
+        customers_df.columns = ['customer_id', 'gender', 'age', 'annual_income', 'spending_score']
     except FileNotFoundError:
-        print("CSV files not found. Run data_generator.py first.")
+        print("CSV file not found.")
         return
 
     db = SessionLocal()
     
     # Check if data already exists
     if db.query(models.Customer).first():
-        print("Data already ingested.")
+        print("Data already ingested. Please delete sql_app.db to re-ingest.")
         db.close()
         return
 
-    # To calculate features, we can do some pandas operations or just use what we have
-    # The ml_pipeline calculates rfm, we'll do a quick rfm here to save into DB
-    transactions_df['transaction_date'] = pd.to_datetime(transactions_df['transaction_date'])
-    recent_date = transactions_df['transaction_date'].max()
-    rfm = transactions_df.groupby('customer_id').agg({
-        'transaction_date': lambda x: (recent_date - x.max()).days,
-        'transaction_id': 'count',
-        'amount': 'sum'
-    }).reset_index()
-    rfm.columns = ['customer_id', 'recency', 'frequency', 'monetary']
-    
-    customer_features = pd.merge(customers_df, rfm, on='customer_id', how='left').fillna(0)
-    
     print("Loading ML models for predictions...")
     try:
         kmeans = joblib.load('models/kmeans_segmentation.joblib')
-        scaler = joblib.load('models/rfm_scaler.joblib')
+        scaler = joblib.load('models/features_scaler.joblib')
         xgb_model = joblib.load('models/xgboost_churn.joblib')
         rf_model = joblib.load('models/rf_clv.joblib')
         
         # Predictions
-        rfm_scaled = scaler.transform(customer_features[['recency', 'frequency', 'monetary']])
-        customer_features['segment'] = kmeans.predict(rfm_scaled)
+        features_scaled = scaler.transform(customers_df[['age', 'annual_income', 'spending_score']])
+        customers_df['segment'] = kmeans.predict(features_scaled)
         
-        X_churn = customer_features[['age', 'annual_income', 'recency', 'frequency', 'monetary']]
-        churn_probs = xgb_model.predict_proba(X_churn)[:, 1]
-        customer_features['churn_probability'] = churn_probs
+        X_ml = customers_df[['age', 'annual_income', 'spending_score']]
+        churn_probs = xgb_model.predict_proba(X_ml)[:, 1]
+        customers_df['churn_probability'] = churn_probs
         
-        X_rev = customer_features[['age', 'annual_income', 'recency', 'frequency', 'monetary']]
-        predicted_clv = rf_model.predict(X_rev)
-        customer_features['predicted_clv'] = predicted_clv
+        predicted_clv = rf_model.predict(X_ml)
+        customers_df['predicted_clv'] = predicted_clv
     except Exception as e:
         print(f"Error loading models or predicting: {e}")
-        # Default values if models fail
-        customer_features['segment'] = -1
-        customer_features['churn_probability'] = 0.0
-        customer_features['predicted_clv'] = 0.0
+        customers_df['segment'] = -1
+        customers_df['churn_probability'] = 0.0
+        customers_df['predicted_clv'] = 0.0
 
     print("Inserting customers into DB...")
     customers_to_insert = []
-    for _, row in customer_features.iterrows():
+    for _, row in customers_df.iterrows():
+        # Re-synthesize churn label for database so it looks realistic in UI if churn_prob > 0.5
+        churned = 1 if row['churn_probability'] > 0.6 else 0
+        
         customer = models.Customer(
             customer_id=int(row['customer_id']),
             age=int(row['age']),
             gender=row['gender'],
-            location=row['location'],
             annual_income=float(row['annual_income']),
-            churned=int(row['churned']),
-            recency=float(row['recency']),
-            frequency=float(row['frequency']),
-            monetary=float(row['monetary']),
+            spending_score=float(row['spending_score']),
+            churned=churned,
             segment=int(row['segment']),
             predicted_clv=float(row['predicted_clv']),
             churn_probability=float(row['churn_probability'])
@@ -85,25 +70,6 @@ def ingest():
     # Bulk insert for speed
     db.bulk_save_objects(customers_to_insert)
     db.commit()
-    
-    print("Inserting transactions into DB...")
-    transactions_to_insert = []
-    for _, row in transactions_df.iterrows():
-        transaction = models.Transaction(
-            transaction_id=int(row['transaction_id']),
-            customer_id=int(row['customer_id']),
-            transaction_date=row['transaction_date'].to_pydatetime(),
-            category=row['category'],
-            amount=float(row['amount'])
-        )
-        transactions_to_insert.append(transaction)
-    
-    # Insert in chunks
-    chunk_size = 10000
-    for i in range(0, len(transactions_to_insert), chunk_size):
-        db.bulk_save_objects(transactions_to_insert[i:i+chunk_size])
-        db.commit()
-    
     db.close()
     print("Ingestion complete!")
 

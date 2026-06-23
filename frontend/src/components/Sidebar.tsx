@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { NavLink } from 'react-router-dom';
 import { LayoutDashboard, Users, TrendingUp, Settings, LogOut, BarChart3 } from 'lucide-react';
 import { motion } from 'framer-motion';

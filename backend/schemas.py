@@ -27,12 +27,9 @@ class CustomerBase(BaseModel):
     customer_id: int
     age: int
     gender: str
-    location: str
     annual_income: float
-    churned: int
-    recency: float = 0.0
-    frequency: float = 0.0
-    monetary: float = 0.0
+    spending_score: float
+    churned: int = 0
     segment: int = -1
     predicted_clv: float = 0.0
     churn_probability: float = 0.0
@@ -46,18 +43,3 @@ class Customer(CustomerBase):
     class Config:
         from_attributes = True
 
-class TransactionBase(BaseModel):
-    transaction_id: int
-    customer_id: int
-    transaction_date: datetime.datetime
-    category: str
-    amount: float
-
-class TransactionCreate(TransactionBase):
-    pass
-
-class Transaction(TransactionBase):
-    id: int
-
-    class Config:
-        from_attributes = True

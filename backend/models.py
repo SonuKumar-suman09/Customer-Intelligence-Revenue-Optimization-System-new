@@ -19,28 +19,12 @@ class Customer(Base):
     customer_id = Column(Integer, unique=True, index=True)
     age = Column(Integer)
     gender = Column(String(50))
-    location = Column(String(100))
     annual_income = Column(Float)
-    churned = Column(Integer)
+    spending_score = Column(Float)
     
-    # ML Features
-    recency = Column(Float, default=0.0)
-    frequency = Column(Float, default=0.0)
-    monetary = Column(Float, default=0.0)
+    # Simulated/ML Features
+    churned = Column(Integer, default=0)
     segment = Column(Integer, default=-1)
     predicted_clv = Column(Float, default=0.0)
     churn_probability = Column(Float, default=0.0)
 
-    transactions = relationship("Transaction", back_populates="customer")
-
-class Transaction(Base):
-    __tablename__ = "transactions"
-
-    id = Column(Integer, primary_key=True, index=True)
-    transaction_id = Column(Integer, unique=True, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.customer_id"))
-    transaction_date = Column(DateTime, default=datetime.datetime.utcnow)
-    category = Column(String(100))
-    amount = Column(Float)
-
-    customer = relationship("Customer", back_populates="transactions")
